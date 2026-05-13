@@ -291,13 +291,14 @@ void JoinHashMap<LT, CT, MT>::_copy_probe_column(ColumnPtr& src_column, ChunkPtr
             (*chunk)->append_column(src_column, slot->id());
         }
     } else if (_probe_state->match_flag == JoinMatchFlag::MOST_MATCH_ONE) {
+        auto mutable_col = src_column->try_mutate();
+        mutable_col->filter(_probe_state->probe_match_filter, _probe_state->probe_row_count);
         if (to_nullable) {
-            src_column->as_mutable_raw_ptr()->filter(_probe_state->probe_match_filter, _probe_state->probe_row_count);
-            auto dest_column = NullableColumn::create(src_column, NullColumn::create(src_column->size()));
+            const size_t filtered_size = mutable_col->size();
+            auto dest_column = NullableColumn::create(std::move(mutable_col), NullColumn::create(filtered_size));
             (*chunk)->append_column(std::move(dest_column), slot->id());
         } else {
-            src_column->as_mutable_raw_ptr()->filter(_probe_state->probe_match_filter, _probe_state->probe_row_count);
-            (*chunk)->append_column(src_column, slot->id());
+            (*chunk)->append_column(std::move(mutable_col), slot->id());
         }
     } else {
         MutableColumnPtr dest_column = ColumnHelper::create_column(slot->type(), to_nullable);
@@ -312,8 +313,9 @@ void JoinHashMap<LT, CT, MT>::_copy_probe_nullable_column(ColumnPtr& src_column,
     if (_probe_state->match_flag == JoinMatchFlag::ALL_MATCH_ONE) {
         (*chunk)->append_column(src_column, slot->id());
     } else if (_probe_state->match_flag == JoinMatchFlag::MOST_MATCH_ONE) {
-        src_column->as_mutable_raw_ptr()->filter(_probe_state->probe_match_filter, _probe_state->probe_row_count);
-        (*chunk)->append_column(src_column, slot->id());
+        auto mutable_col = src_column->try_mutate();
+        mutable_col->filter(_probe_state->probe_match_filter, _probe_state->probe_row_count);
+        (*chunk)->append_column(std::move(mutable_col), slot->id());
     } else {
         MutableColumnPtr dest_column = ColumnHelper::create_column(slot->type(), true);
         dest_column->append_selective(*src_column, _probe_state->probe_index.data(), 0, _probe_state->count);
